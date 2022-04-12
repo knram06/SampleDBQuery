@@ -12,11 +12,11 @@ class EmployeeDB() {
       new Employee("Eric", "456", 32)
     )
 
-    // TODO: improve these field name scans
+    // use reflection to get the properties names
     allowedFieldNames = classOf[Employee].getDeclaredFields.map(x => x.getName)
   }
 
-  def getData(fieldNames: List[String]): List[String] =
+  def getData(fieldNames: List[String], filterObj: FilterQuery): List[String] =
   {
     var fields: List[String] = List[String]()
     if (fieldNames.length == 1 && fieldNames.head == "*") {
@@ -41,12 +41,19 @@ class EmployeeDB() {
       val str = new ListBuffer[String]()
       for (f <- fields) {
         fieldMap.get(f) match {
-          case Some(res) => str += res
+          case Some(res) =>
+            if (filterObj.apply(f, res)) {
+              str += res
+            }
           case None => println("match not found")
         }
       }
 
-      data += str.toList.mkString(",")
+      // if filter condition was true for every field
+      // only then add to data string buffer
+      if (str.length == fields.length) {
+        data += str.toList.mkString(",")
+      }
     }
 
     data.toList
