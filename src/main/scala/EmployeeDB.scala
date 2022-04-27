@@ -16,20 +16,8 @@ class EmployeeDB() {
     allowedFieldNames = classOf[Employee].getDeclaredFields.map(x => x.getName)
   }
 
-  def getData(fieldNames: List[String], filterObj: FilterQuery): List[String] =
+  def getData(fieldNames: List[String], filterObj: Option[Filter]): List[String] =
   {
-    var fields: List[String] = List[String]()
-    if (fieldNames.length == 1 && fieldNames.head == "*") {
-      fields = allowedFieldNames.toList
-    }
-    else {
-      if (!fieldNames.forall(t => allowedFieldNames.contains(t))) {
-        throw new Exception
-      }
-
-      fields = fieldNames
-    }
-
     val data = new ListBuffer[String]()
     for (rec <- employeeRecords) {
       val fieldMap = Map[String, String](
@@ -39,11 +27,15 @@ class EmployeeDB() {
       )
 
       val str = new ListBuffer[String]()
-      for (f <- fields) {
+      for (f <- fieldNames) {
         fieldMap.get(f) match {
           case Some(res) =>
-            if (filterObj.apply(f, res)) {
-              str += res
+            filterObj match {
+              case Some(filt) =>
+                if (filt.apply (f, res) ) {
+                  str += res
+                }
+              case None => str += res
             }
           case None => println("match not found")
         }
@@ -51,7 +43,7 @@ class EmployeeDB() {
 
       // if filter condition was true for every field
       // only then add to data string buffer
-      if (str.length == fields.length) {
+      if (str.length == fieldNames.length) {
         data += str.toList.mkString(",")
       }
     }
