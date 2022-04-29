@@ -3,35 +3,16 @@ import scala.util.parsing.combinator.lexical.StdLexical
 import scala.util.parsing.combinator.syntactical.StandardTokenParsers
 
 trait Node
-
-trait SqlProj extends Node {
-  def toString: String
+trait SqlRelation extends Node {
+  def getData: Schema
 }
 
-case class StarProj() extends SqlProj {
-  override def toString = "*"
-}
-
-case class FieldProj(field: String, alias: String = null) extends SqlProj() {
-  override def toString: String = {
-    if (alias != null) {
-      s"FieldProj($field, $alias)"
-    }
-    else {
-      s"FieldProj($field)"
-    }
-  }
-}
-
-trait SqlRelation extends Node
 case class TableReln(name: String) extends SqlRelation {
   override def toString: String = name
-}
 
-
-trait Operation extends Node
-case class SimpleOp(op: String) extends Operation {
-  override def toString: String = op
+  override def getData: Schema = {
+    QueryHandler.tableManager.getTableSchema(name)
+  }
 }
 
 case class Filter(field: String, op: SimpleOp, cmp: String) extends Node {
@@ -44,13 +25,7 @@ case class Filter(field: String, op: SimpleOp, cmp: String) extends Node {
     throw new Exception
   }
 
-  def apply(inputField: String, inputVal: String): Boolean = {
-    // if we are not at the field to match
-    // return true
-    if (field != inputField) {
-      return true
-    }
-
+  def applyOnRow(inputVal: String): Boolean = {
     op.op match {
       case "lte" | "<=" => inputVal.toInt <= cmp.toInt
       case "lt"  | "<"  => inputVal.toInt < cmp.toInt
@@ -64,15 +39,51 @@ case class Filter(field: String, op: SimpleOp, cmp: String) extends Node {
         throw new Exception
     }
   }
+
+  def apply(input: Schema): Schema = {
+    // if field doesn't exist in Schema, just throw
+    val index = input.headers.indexOf(field)
+    if (index == -1) {
+      println(s"Specified field: $field, does not exist in schema")
+      throw new Exception
+    }
+
+    val ret = new Schema
+    ret.headers ++= input.headers
+
+    // loop through the records and apply the filter condition
+    for (rec <- input.records) {
+      if (applyOnRow(rec(index))) {
+        ret.records.addOne(rec)
+      }
+    }
+    ret
+  }
 }
 
-case class Select(projections: Seq[SqlProj], table: TableReln, filter: Option[Filter]) extends Node {
+case class Select(input: SqlRelation, projections: SeqProj, filter: Option[Filter]) extends SqlRelation {
   override def toString: String = {
     filter match {
       case Some(f) =>
-        s"Select(${projections.mkString(",")}, ${table.toString}, ${f.toString})"
+        s"Select(${input.toString}, ${projections.toString}, ${f.toString})"
       case None =>
-        s"Select(${projections.mkString(",")}, ${table.toString})"
+        s"Select(${input.toString}, ${projections.toString})"
+    }
+  }
+
+  override def getData: Schema = {
+    // get the input's schema
+    var ret = input.getData
+
+    // have the projection act on it - apply?
+    ret = projections.apply(ret)
+
+    // apply filter if specified
+    filter match {
+      case Some(f) =>
+        f.apply(ret)
+      case None =>
+        ret
     }
   }
 }
@@ -85,9 +96,15 @@ class SqlParser extends StandardTokenParsers with PackratParsers {
   lexical.delimiters += ("*", "+", "-", "<", "=", "<>", "!=", "<=", ">=", ">", "/", "(", ")", ",", ".", ";")
 
   def select: PackratParser[Select] =
-    "select" ~ projections ~ table ~ opt(filter) ^^ {case _ ~ p ~ t ~ f => Select(p, t, f)}
+    "select" ~ projections ~ relations ~ opt(filter) ^^ {case _ ~ p ~ r ~ f => Select(r, p, f)}
 
-  def projections: PackratParser[Seq[SqlProj]] = repsep(projection, ",")
+  def relations: PackratParser[SqlRelation] = "from" ~> simple_relation
+
+  def simple_relation: PackratParser[SqlRelation] =
+    ident ^^ (b => TableReln(b)) |
+      "(" ~ select ~ ")" ^^ {case _ ~ s ~ _ => s}
+
+  def projections: PackratParser[SeqProj] = repsep(projection, ",") ^^ {s => SeqProj(s)}
   def projection: PackratParser[SqlProj] =
     "*" ^^ {_ => StarProj()} |
       ident ~ opt("as" ~> ident) ^^ {
@@ -96,8 +113,6 @@ class SqlParser extends StandardTokenParsers with PackratParsers {
           case None => FieldProj(a)
         }
       }
-
-  def table: PackratParser[TableReln] = ("from" ~> ident) ^^ (b => TableReln(b))
 
   def filter: PackratParser[Filter] = ("where" ~> ident) ~ operation ~ compare ^^ {case f ~ op ~ c => Filter(f, op, c)}
   def compare: PackratParser[String] = numericLit | stringLit

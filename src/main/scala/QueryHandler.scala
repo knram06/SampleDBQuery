@@ -1,31 +1,25 @@
 object QueryHandler {
-  var employeeDB = new EmployeeDB()
-  employeeDB.initData()
+  val employeeRecords: Seq[Employee] = List[Employee] (
+    new Employee("Ram", "123", 34),
+    new Employee("Joe", "124", 22),
+    new Employee("Tom", "345", 27),
+    new Employee("Eric", "456", 32),
+    new Employee("James", "456", 35)
+  )
 
-  var allowedTableNames: Seq[String] = List[String] {"employees"}
+  val employeeTable = new Table("employees")
+  employeeTable.addList(employeeRecords)
 
-  def printData(fields: Seq[String], filterObj: Option[Filter]): Unit = {
-    val data = employeeDB.getData(fields.toList, filterObj)
-    for (d <- data) {
-       println(d)
-    }
-  }
+  val tableManager = new TableMgr
+  tableManager.addTable(employeeTable.getTableName, employeeTable)
+  val allowedTableNames: Seq[String] = tableManager.getTableNames
 
   def main(args: Array[String]): Unit = {
     val parser = new SqlParser()
-    val query = "select Name as N,Age as A from employees where Age >= 30"
+    val query = "select TestHeader as SomeName from (select Name as TestHeader,Age as TestAge from (select * from employees) as employeeData where TestAge >= 30)"
     val selectObj = parser.parse(query)
-    val projections = selectObj.projections
-
-    var fieldNames = Array[String]()
-    if (projections.length == 1 && projections.head.isInstanceOf[StarProj]) {
-      fieldNames = employeeDB.allowedFieldNames
-    }
-    else {
-      fieldNames = projections.map(p => p.asInstanceOf[FieldProj].field).toArray
-    }
 
     println(selectObj)
-    printData(fieldNames, selectObj.filter)
+    println(selectObj.getData)
   }
 }
